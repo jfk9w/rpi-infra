@@ -1,0 +1,9 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    svc: "{{ tvtorrent }}"
+    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    bin: "{{ svc_dir }}/{{ svc.name }}"
+  tasks:
+    - include_tasks: ../base/go.yml
+    - include_tasks: ../base/cron.yml

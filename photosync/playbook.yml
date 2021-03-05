@@ -1,0 +1,16 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    svc: "{{ photosync }}"
+    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    bin: "./photosync.py"
+  tasks:
+    - block:
+        - name: copy script
+          template:
+            src: photosync.py
+            dest: "{{ svc_dir }}"
+            mode: "+x"
+      become: true
+      become_user: "{{ svc.user }}"
+    - include_tasks: ../base/cron.yml

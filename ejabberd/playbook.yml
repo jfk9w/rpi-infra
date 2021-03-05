@@ -1,0 +1,89 @@
+---
+- hosts: "{{ host }}"
+  become: yes
+  vars:
+    src_dir: /tmp/ejabberd-src
+    service: /etc/systemd/system/ejabberd.service
+    certfile: /usr/local/etc/ejabberd/ejabberd.pem
+  tasks:
+    - name: check if ejabberdctl is already present
+      stat:
+        path: "{{ service }}"
+      register: ejabberdctl
+    - block:
+        - name: install required packages
+          apt:
+            package:
+              - gcc
+              - make
+              - libexpat1-dev
+              - libyaml-dev
+              - erlang
+              - zlibc
+              - autoconf
+              - libsqlite3-dev
+              - libssl-dev
+        - name: clone repository
+          git:
+            repo: "{{ ejabberd.repo }}"
+            dest: "{{ src_dir }}"
+        - name: build
+          shell:
+            chdir: "{{ src_dir }}"
+            cmd: "{{ item }}"
+          with_items:
+            - "./autogen.sh"
+            - "./configure --enable-user={{ ejabberd.user }} --enable-pgsql --enable-stun"
+            - "make"
+            - "make install"
+        - name: copy service descriptor
+          copy:
+            remote_src: yes
+            src: "{{ src_dir }}/ejabberd.service.template"
+            dest: "{{ service }}"
+        - name: replace template variables in service descriptor
+          replace:
+            path: "{{ service }}"
+            regexp: "\\@ctlscriptpath\\@"
+            replace: "/usr/local/sbin"
+        - name: replace user in service descriptor
+          replace:
+            path: "{{ service }}"
+            regexp: "^User\\=ejabberd$"
+            replace: "User={{ ejabberd.user }}"
+        - name: replace group in service descriptor
+          replace:
+            path: "{{ service }}"
+            regexp: "^Group\\=ejabberd$"
+            replace: "Group={{ ejabberd.user }}"
+        - name: make executable
+          file:
+            path: "{{ service }}"
+            mode: a+x
+        - name: create postgres schema
+          shell:
+            cmd: >-
+              PGPASSWORD={{ ejabberd.postgres.password }} psql
+              -U {{ ejabberd.postgres.user }}
+              -d {{ ejabberd.postgres.database }}
+              -h {{ ejabberd.postgres.host }}
+              -f {{ src_dir }}/sql/pg.sql
+      when: not ejabberdctl.stat.exists
+    - name: create pem file
+      shell:
+        cmd: >-
+          cat
+          /etc/letsencrypt/live/{{ host }}/privkey.pem
+          /etc/letsencrypt/live/{{ host }}/fullchain.pem
+          > {{ certfile }}
+    - name: copy ejabberd config
+      template:
+        src: templates/ejabberd.yml
+        dest: /usr/local/etc/ejabberd/ejabberd.yml
+        owner: "{{ ejabberd.user }}"
+        group: "{{ ejabberd.user }}"
+    - name: restart ejabberd
+      systemd:
+        name: ejabberd
+        state: restarted
+        daemon_reload: yes

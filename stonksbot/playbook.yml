@@ -1,0 +1,10 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    svc: "{{ stonksbot }}"
+    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    bin: "{{ svc_dir }}/{{ svc.name }}"
+  tasks:
+    - include_tasks: ../base/go.yml
+    - include_tasks: ../base/logrotate.yml
+    - include_tasks: ../base/supervisor.yml

@@ -1,0 +1,15 @@
+supervisor: {{ telegram.supervisor_id }}
+timeout: 1m
+datasource: {{ svc_dir }}/data.yml
+directory: {{ tvtorrent.download_dir }}
+free_space: 150Gb
+upload_ratio: 1
+record_ttl: 1344h
+showrss:
+  user_id: {{ tvtorrent.showrss_id }}
+transmission:
+  rpc: "http://localhost:{{ transmission.rpc.port }}/rpc"
+  username: "{{ transmission.rpc.username }}"
+  password: "{{ transmission.rpc.password }}"
+telegram:
+  token: "{{ telegram.tokens.diligent_bot }}"

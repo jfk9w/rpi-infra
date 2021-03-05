@@ -1,0 +1,24 @@
+---
+- hosts: "{{ host }}"
+  become: yes
+  vars:
+    tm_dir: "{{ nas.path }}/tmachine"
+  tasks:
+    - name: install netatalk
+      apt: name=netatalk
+    - name: precreate share directory
+      file:
+        path: "{{ tm_dir }}"
+        state: directory
+        mode: g+rw
+        owner: "{{ nas.group }}"
+        group: "{{ nas.group }}"
+    - name: add netatalk config
+      template:
+        src: afp.conf
+        dest: /etc/netatalk/afp.conf
+    - name: restart netatalk
+      systemd:
+        name: netatalk
+        state: restarted
+        daemon_reload: yes

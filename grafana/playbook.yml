@@ -1,0 +1,36 @@
+---
+- hosts: "{{ host }}"
+  become: yes
+  vars:
+    svc: "{{ grafana }}"
+    ini: /etc/grafana/grafana.ini
+  tasks:
+    - apt:
+        name:
+          - adduser
+          - libfontconfig1
+          - python-apt
+    - package_facts: manager=apt
+    - apt: deb="{{ svc.deb }}"
+    - block:
+      - lineinfile:
+          dest: "{{ ini }}"
+          regexp: "^;?root_url ="
+          line: "root_url = https://{{ host }}/grafana"
+      - lineinfile:
+          dest: "{{ ini }}"
+          regexp: "^;?http_port ="
+          line: "http_port = {{ svc.port }}"
+      - lineinfile:
+          dest: "{{ ini }}"
+          regexp: "^;?admin_user ="
+          line: "admin_user = {{ svc.user }}"
+      - lineinfile:
+          dest: "{{ ini }}"
+          regexp: "^;?admin_password ="
+          line: "admin_password = {{ svc.pass }}"
+      when: "'grafana-rpi' not in ansible_facts.packages"
+    - systemd:
+        name: grafana-server
+        enabled: yes
+        state: restarted

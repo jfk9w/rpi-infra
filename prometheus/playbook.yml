@@ -1,0 +1,29 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    archive_url: "https://github.com/prometheus/prometheus/releases/download/v{{ svc.version }}/prometheus-{{ svc.version }}.linux-armv7.tar.gz"
+    archive_path: /tmp/prometheus.tar.gz
+    svc: "{{ prometheus }}"
+    svc_dir: /home/{{ svc.user }}/prometheus
+    bin: "{{ svc_dir }}/prometheus"
+  tasks:
+    - name: check installed prometheus version
+      shell: "{{ bin }} --version 2>&1 || true"
+      register: installed_version
+    - block:
+      - get_url: url="{{ archive_url }}" dest="{{ archive_path }}"
+      - file: path="{{ svc_dir }}" state=absent
+      - file: path="{{ svc_dir }}" state=directory
+      - shell: "tar -xf {{ archive_path }} -C {{ svc_dir }} --strip-components=1"
+      - file: path="{{ archive_path }}" state=absent
+      when: "svc.version not in installed_version.stdout.split(' ')"
+      become: yes
+      become_user: "{{ svc.user }}"
+    - template:
+        src: "{{ item }}"
+        dest: "{{ svc_dir }}"
+      with_fileglob: "../{{ svc.name }}/templates/*"
+      become: yes
+      become_user: "{{ svc.user }}"
+    - include_tasks: ../base/logrotate.yml
+    - include_tasks: ../base/supervisor.yml

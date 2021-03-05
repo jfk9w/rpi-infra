@@ -1,0 +1,19 @@
+---
+- hosts: "{{ host }}"
+  become: yes
+  tasks:
+    - name: install samba
+      apt:
+        name:
+          - samba
+          - samba-common-bin
+    - name: add samba config
+      template:
+        src: smb.conf
+        dest: /etc/samba
+    - name: restart samba
+      systemd:
+        name: smbd
+        state: restarted
+        daemon_reload: yes
+    # - log on and set a password: `sudo smbpasswd -a {{ user }}`

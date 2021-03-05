@@ -1,0 +1,18 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    svc: "{{ syncthing }}"
+    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    bin: syncthing
+  tasks:
+    - block:
+        - name: install syncthing
+          apt: package=syncthing
+        - name: add {{ svc.user }} to {{ user }} group
+          user:
+            name: "{{ svc.user }}"
+            groups: "{{ user }}"
+            append: true
+      become: true
+    - include_tasks: ../base/logrotate.yml
+    - include_tasks: ../base/supervisor.yml

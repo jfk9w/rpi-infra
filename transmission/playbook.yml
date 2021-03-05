@@ -1,0 +1,61 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    svc: "{{ transmission }}"
+    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    systemd_dir: /etc/systemd/system/transmission-daemon.service.d
+  tasks:
+    - include_tasks: ../base/logrotate.yml
+    - set_fact: main_log={{ log_dir }}/main.log
+    - block:
+        - name: install daemon
+          apt: package=transmission-daemon
+        - name: add {{ svc.user }} to {{ user }} group
+          user:
+            name: "{{ svc.user }}"
+            groups: "{{ user }}"
+            append: true
+        - name: add {{ user }} to {{ svc.user }} group
+          user:
+            name: "{{ user }}"
+            groups: "{{ svc.user }}"
+            append: true
+        - name: create download directories
+          file:
+            path: "{{ item.value }}"
+            state: directory
+            mode: 0775
+            owner: "{{ svc.user }}"
+            group: "{{ svc.user }}"
+          with_dict: "{{ svc.download.paths }}"
+        - name: create service directory
+          file:
+            path: "{{ systemd_dir }}"
+            state: directory
+            recurse: true
+        - name: create systemd override
+          template:
+            src: override.conf
+            dest: "{{ systemd_dir }}/override.conf"
+        - name: reload and stop daemon
+          systemd:
+            name: transmission-daemon
+            state: stopped
+            daemon_reload: true
+        - name: update settings
+          template:
+            src: settings.json
+            dest: "{{ svc_dir }}"
+            mode: u=rw,g=r,o=r
+            owner: "{{ svc.user }}"
+            group: "{{ svc.user }}"
+        - name: update config dir location
+          lineinfile:
+            dest: /etc/default/transmission-daemon
+            regexp: "^CONFIG_DIR="
+            line: "CONFIG_DIR=\"{{ svc_dir }}\""
+        - name: start daemon
+          systemd:
+            name: transmission-daemon
+            state: started
+      become: true

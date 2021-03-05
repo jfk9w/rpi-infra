@@ -1,0 +1,2 @@
+prometheus: "http://localhost:{{ prometheus.listeners.stonksbot }}/metrics"
+tokens: {{ stonksbot.tokens }}

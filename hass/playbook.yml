@@ -1,0 +1,54 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    svc: "{{ hass }}"
+    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    conf_dir: "/home/{{ svc.user }}/.homeassistant"
+    bin: "{{ svc_dir }}/bin/python {{ svc_dir }}/bin/{{ svc.name }}"
+  tasks:
+    - block:
+      - name: install packages
+        apt:
+          package:
+            - python3 
+            - python3-dev 
+            - python3-venv 
+            - python3-pip 
+            - libffi-dev 
+            - libssl-dev 
+            - autoconf 
+            - build-essential 
+            - libopenjp2-7
+      - name: add {{ svc.user }} to necessary groups
+        user:
+          name: "{{ svc.user }}"
+          groups: ["dialout", "gpio", "i2c"]
+          append: true
+      become: true
+    - block:
+      - name: create installation directory
+        file:
+          path: "{{ svc_dir }}"
+          state: directory
+      - name: install hass in virtualenv
+        pip:
+          chdir: "{{ svc_dir }}"
+          name: ["wheel", "homeassistant"]
+          virtualenv: "."
+          virtualenv_command: python3 -m venv
+          state: latest
+      - name: ensure config directory exists
+        file:
+          path: "{{ conf_dir }}"
+          state: directory
+          recurse: true
+      - name: copy templated configs
+        tags: update
+        template:
+          src: "{{ item }}"
+          dest: "{{ conf_dir }}"
+        with_fileglob: "templates/*"
+      become: true
+      become_user: "{{ svc.user }}"
+    - include_tasks: ../base/logrotate.yml
+    - include_tasks: ../base/supervisor.yml

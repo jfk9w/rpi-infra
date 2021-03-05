@@ -1,0 +1,18 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    svc: "{{ hikkabot }}"
+    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    bin: "{{ svc_dir }}/{{ svc.name }}"
+  tasks:
+    - include_tasks: ../base/go.yml
+    - include_tasks: ../base/logrotate.yml
+    - include_tasks: ../base/supervisor.yml
+    - name: add vacuum to cron
+      cron:
+        name: hikkabot vacuum
+        job: psql -U hikkabot -d hikkabot -c "VACUUM" >> {{ log_dir }}/vacuum.log
+        minute: "30"
+        hour: "9"
+      become: true
+      become_user: "{{ svc.user }}"

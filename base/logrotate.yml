@@ -1,0 +1,31 @@
+---
+- name: install required packages
+  apt: package=logrotate
+  become: true
+- block:
+  - name: set facts
+    set_fact: log_dir="{{ log_dir | default(svc_dir + '/log') }}"
+  - name: ensure log directory exists
+    file:
+      path: "{{ log_dir }}"
+      state: directory
+      recurse: true
+  - name: set config fact
+    tags: update
+    set_fact: config="{{ svc_dir }}/logrotate.conf"
+  - name: copy logrotate config
+    tags: update
+    template:
+      src: "logrotate.conf"
+      dest: "{{ config }}"
+  - name: add logrotate to cron
+    cron:
+      name: "{{ svc.name }} logrotate"
+      job: >
+        /usr/sbin/logrotate {{ config }}
+        -s {{ svc_dir }}/logrotate.status
+        -v >> {{ svc_dir }}/logrotate.log 2>&1
+      minute: "0"
+      hour: "*"
+  become: true
+  become_user: "{{ svc.user }}"
