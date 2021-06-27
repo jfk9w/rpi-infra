@@ -8,8 +8,8 @@ record_ttl: 1344h
 showrss:
   user_id: {{ tvtorrent.showrss_id }}
 transmission:
-  rpc: "http://localhost:{{ transmission.rpc.port }}/rpc"
-  username: "{{ transmission.rpc.username }}"
-  password: "{{ transmission.rpc.password }}"
+  rpc: "http://localhost:{{ transmission.port }}/rpc"
+  username: "{{ transmission.username }}"
+  password: "{{ transmission.password }}"
 telegram:
   token: "{{ telegram.tokens.diligent_bot }}"

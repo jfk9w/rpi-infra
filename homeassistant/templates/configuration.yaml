@@ -13,22 +13,24 @@ scene: !include scenes.yaml
 
 wake_on_lan:
 
-vacuum:
-  - name: Rocky
-    platform: xiaomi_miio
-    host: {{ home.devices.rocky.ip }}
-    token: {{ home.devices.rocky.token }}
-
 switch:
-  - name: Pixar
-    platform: xiaomi_miio
-    host: {{ home.devices.pixar.ip }}
-    token: {{ home.devices.pixar.token }}
-    model: {{ home.devices.pixar.model }}
   - name: PC
     platform: wake_on_lan
     host: {{ home.devices.pc.ip }}
     mac: {{ home.devices.pc.mac }}
+  - platform: template
+    switches:
+      ac:
+        friendly_name: AC
+        unique_id: switch_ac
+        value_template: >
+          {{ '{{' }} 
+            is_state('binary_sensor.contact_sensor', 'on') 
+          {{ '}}' }}
+        turn_on:
+          service: script.turn_ac_on
+        turn_off:
+          service: script.turn_ac_off
 
 sensor:
   - platform: systemmonitor
@@ -40,9 +42,9 @@ sensor:
       - type: memory_use_percent
       - type: load_1m
       - type: throughput_network_in
-        arg: eth0
+        arg: enp3s0
       - type: throughput_network_out
-        arg: eth0
+        arg: enp3s0
   - platform: template
     sensors:
       anybody_home:
@@ -51,8 +53,8 @@ sensor:
         value_template: >
           {{ '{{' }}
              is_state('person.igor', 'home') or is_state('person.julia', 'home') or
-             is_state('device_tracker.redminote9pro_redmi_2', 'home') or
-             is_state('device_tracker.redminote9pro_redmi', 'home')
+             is_state('device_tracker.igor_s_phone', 'home') or
+             is_state('device_tracker.redmi_note_9_pro_2', 'home')
           {{ '}}' }}
       bad_weather:
         friendly_name: Bad weather
@@ -60,7 +62,7 @@ sensor:
         value_template: >
           {{ '{{' }}
              states('weather.home') in (
-               'cloudy', 'hail', 'lightning', 'lightning-rainy',
+               'hail', 'lightning', 'lightning-rainy',
                'pouring', 'rainy', 'snowy', 'snowy-rainy')
           {{ '}}' }}
 
@@ -81,7 +83,11 @@ homeassistant:
   time_zone: {{ home.geo.time_zone }}
   external_url: "https://{{ svc.host }}"
   media_dirs:
-    tv: {{ transmission.download.paths.tv }}
-    movie: {{ transmission.download.paths.movies }}
+    tv: {{ transmission.download_paths.tv }}
+    movie: {{ transmission.download_paths.movies }}
 
 media_source:
+
+recorder:
+  commit_interval: 60
+

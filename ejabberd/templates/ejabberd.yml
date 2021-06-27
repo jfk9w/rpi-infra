@@ -14,32 +14,26 @@
 ### Refer to http://en.wikipedia.org/wiki/YAML for the brief description.
 ###
 
-hosts:
-  - {{ host }}
+hosts: 
+  - {{ svc.host }}
 
 loglevel: info
 
-## If you already have certificates, list them here
 certfiles:
- - /etc/letsencrypt/live/{{ host }}/fullchain.pem
- - /etc/letsencrypt/live/{{ host }}/privkey.pem
+ - {{ conf }}/privkey.pem
+ - {{ conf }}/fullchain.pem
 
 listen:
   -
-    port: {{ ejabberd.port }}
+    port: {{ svc.port }}
     ip: "::"
     module: ejabberd_c2s
     max_stanza_size: 262144
     shaper: c2s_shaper
     access: c2s
     starttls_required: true
-#  -
-#    port: 5269
-#    ip: "::"
-#    module: ejabberd_s2s_in
-#    max_stanza_size: 524288
   -
-    port: {{ ejabberd.http.port }}
+    port: {{ svc.http.port }}
     ip: "::"
     module: ejabberd_http
     tls: true
@@ -50,27 +44,21 @@ listen:
       /captcha: ejabberd_captcha
       /upload: mod_http_upload
       /ws: ejabberd_http_ws
-#  -
-#    port: 5280
-#    ip: "::"
-#    module: ejabberd_http
-#    request_handlers:
-#      /admin: ejabberd_web_admin
   -
-    port: {{ ejabberd.stun.port }}
+    port: {{ svc.stun.port }}
     ip: "::"
     transport: udp
     module: ejabberd_stun
-    use_turn: false
-    ## The server's public IPv4 address:
-    turn_ipv4_address: "188.255.110.228"
-    ## The server's public IPv6 address:
-    # turn_ipv6_address: "2001:db8::3"
-#  -
-#    port: 1883
-#    ip: "::"
-#    module: mod_mqtt
-#    backlog: 1000
+    use_turn: true
+    turn_ipv4_address: {{ ipify_public_ip }}
+  -
+    port: {{ svc.stuns.port }}
+    transport: tcp
+    module: ejabberd_stun
+    use_turn: true
+    tls: true
+    ip: 0.0.0.0
+    turn_ipv4_address: {{ ipify_public_ip }}
 
 s2s_use_starttls: optional
 
@@ -217,7 +205,33 @@ modules:
   mod_shared_roster: {}
   mod_stream_mgmt:
     resend_on_timeout: if_offline
-  mod_stun_disco: {}
+  mod_stun_disco:
+    credentials_lifetime: 12h
+    services:
+      -
+        host: {{ ipify_public_ip }}
+        port: {{ svc.stun.port }}
+        type: stun
+        transport: udp
+        restricted: false
+      -
+        host: {{ ipify_public_ip }}
+        port: {{ svc.stun.port }}
+        type: turn
+        transport: udp
+        restricted: true
+      -
+        host: {{ svc.host }}
+        port: {{ svc.stuns.port }}
+        type: stuns
+        transport: tcp
+        restricted: false
+      -
+        host: {{ svc.host }}
+        port: {{ svc.stuns.port }}
+        type: turns
+        transport: tcp
+        restricted: true
   mod_vcard: {}
   mod_vcard_xupdate: {}
   mod_version:
@@ -225,14 +239,9 @@ modules:
 
 default_db: sql
 sql_type: pgsql
-sql_username: {{ ejabberd.postgres.user }}
-sql_password: "{{ ejabberd.postgres.password }}"
-sql_server: localhost
-sql_port: {{ ejabberd.postgres.port }}
-sql_database: {{ ejabberd.postgres.database }}
+sql_username: {{ svc.postgres.user }}
+sql_password: "{{ svc.postgres.password }}"
+sql_server: {{ svc.postgres.host }}
+sql_port: {{ svc.postgres.port }}
+sql_database: {{ svc.postgres.database }}
 auth_password_format: scram
-
-### Local Variables:
-### mode: yaml
-### End:
-### vim: set filetype=yaml tabstop=8

@@ -1,29 +1,56 @@
 ---
 - hosts: "{{ host }}"
   vars:
-    archive_url: "https://github.com/prometheus/prometheus/releases/download/v{{ svc.version }}/prometheus-{{ svc.version }}.linux-armv7.tar.gz"
-    archive_path: /tmp/prometheus.tar.gz
     svc: "{{ prometheus }}"
-    svc_dir: /home/{{ svc.user }}/prometheus
-    bin: "{{ svc_dir }}/prometheus"
+    svc_dir: "/opt/{{ svc.name }}"
+    prometheus_version: 2.26.0
+    node_exporter_version: 1.1.2
   tasks:
-    - name: check installed prometheus version
-      shell: "{{ bin }} --version 2>&1 || true"
-      register: installed_version
-    - block:
-      - get_url: url="{{ archive_url }}" dest="{{ archive_path }}"
-      - file: path="{{ svc_dir }}" state=absent
-      - file: path="{{ svc_dir }}" state=directory
-      - shell: "tar -xf {{ archive_path }} -C {{ svc_dir }} --strip-components=1"
-      - file: path="{{ archive_path }}" state=absent
-      when: "svc.version not in installed_version.stdout.split(' ')"
-      become: yes
-      become_user: "{{ svc.user }}"
-    - template:
+  - name: precreate directory
+    file: path={{ svc_dir }} state=directory owner={{ svc.user }} group={{ svc.user }} mode=0775
+    become: yes
+  - include_tasks: ../base/logrotate.yml
+  - name: set log file locations
+    set_fact:
+      main_logs:
+        prometheus: "{{ log_dir }}/prometheus.log"
+        node_exporter: "{{ log_dir }}/node_exporter.log"
+  - block:
+    - name: install prometheus and node_exporter
+      unarchive:
+        remote_src: yes
         src: "{{ item }}"
         dest: "{{ svc_dir }}"
-      with_fileglob: "../{{ svc.name }}/templates/*"
-      become: yes
-      become_user: "{{ svc.user }}"
-    - include_tasks: ../base/logrotate.yml
-    - include_tasks: ../base/supervisor.yml
+        exclude:
+          - LICENSE
+          - NOTICE
+        extra_opts: ["--strip-components=1"]
+        mode: g+w
+      with_items:
+        - "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        - "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    - name: copy config
+      template:
+        src: prometheus.yml
+        dest: "{{ svc_dir }}"
+    become: yes
+    become_user: "{{ svc.user }}"
+  - block:
+    - name: precreate log files with correct permissions
+      file:
+        path: "{{ item.value }}"
+        state: touch
+        owner: "{{ svc.user }}"
+        group: "{{ svc.user }}"
+      with_dict: "{{ main_logs }}"
+    - name: install supervisor
+      apt: package=supervisor
+    - name: copy supervisor config
+      template:
+        src: supervisor.conf
+        dest: "/etc/supervisor/conf.d/{{ svc.name }}.conf"
+    - name: manage service via supervisor
+      supervisorctl: name={{ svc.name }} state=present
+    - name: restart service
+      supervisorctl: name={{ svc.name }} state=restarted
+    become: true

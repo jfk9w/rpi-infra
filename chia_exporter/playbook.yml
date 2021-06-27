@@ -1,7 +1,7 @@
 ---
-- hosts: "{{ host }}"
+- hosts: "{{ chia.master }}"
   vars:
-    svc: "{{ hikkabot }}"
+    svc: "{{ chia.exporter }}"
     svc_dir: "/opt/{{ svc.name }}"
     bin: "{{ svc_dir }}/{{ svc.name }}"
   tasks:

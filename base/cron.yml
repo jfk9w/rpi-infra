@@ -1,6 +1,13 @@
 ---
 - name: set facts
-  set_fact: log_dir="{{ svc_dir }}/log"
+  set_fact: log_dir="/var/log/{{ svc.name }}"
+- name: create log directory
+  file:
+    path: "{{ log_dir }}"
+    state: directory
+    owner: "{{ svc.user }}"
+    group: "{{ svc.user }}"
+  become: yes
 - name: set facts
   set_fact: main_log="{{ log_dir }}/main.$(date '+\\%Y-\\%m-\\%d_\\%H-\\%M-\\%S').log"
 - name: add job to cron
@@ -9,7 +16,7 @@
     job: >
       (find {{ log_dir }} -type f -mtime +{{ svc.keep_logs | default('7') }} -delete &&
       cd {{ svc_dir }} &&
-      {{ bin }} {{ svc.args | default('') }}) >> {{ main_log }} 2>&1
+      {{ bin }} {{ ' '.join(svc.args) | default('') }}) >> {{ main_log }} 2>&1
     minute: "{{ svc.schedule.minute | default('*') }}"
     hour: "{{ svc.schedule.hour | default('*') }}"
   become: true

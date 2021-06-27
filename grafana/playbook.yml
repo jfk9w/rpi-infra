@@ -3,34 +3,23 @@
   become: yes
   vars:
     svc: "{{ grafana }}"
-    ini: /etc/grafana/grafana.ini
   tasks:
-    - apt:
-        name:
-          - adduser
-          - libfontconfig1
-          - python-apt
-    - package_facts: manager=apt
-    - apt: deb="{{ svc.deb }}"
-    - block:
-      - lineinfile:
-          dest: "{{ ini }}"
-          regexp: "^;?root_url ="
-          line: "root_url = https://{{ host }}/grafana"
-      - lineinfile:
-          dest: "{{ ini }}"
-          regexp: "^;?http_port ="
-          line: "http_port = {{ svc.port }}"
-      - lineinfile:
-          dest: "{{ ini }}"
-          regexp: "^;?admin_user ="
-          line: "admin_user = {{ svc.user }}"
-      - lineinfile:
-          dest: "{{ ini }}"
-          regexp: "^;?admin_password ="
-          line: "admin_password = {{ svc.pass }}"
-      when: "'grafana-rpi' not in ansible_facts.packages"
-    - systemd:
-        name: grafana-server
-        enabled: yes
-        state: restarted
+  - name: install required packages
+    apt:
+      name:
+        - apt-transport-https
+        - software-properties-common
+        - wget
+  - name: add gpg key
+    shell: wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
+  - name: add repository
+    shell: echo "deb https://packages.grafana.com/oss/deb stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
+  - name: install grafana
+    apt: name=grafana update_cache=yes
+  - name: copy grafana.ini
+    template: src=grafana.ini dest=/etc/grafana group=grafana mode=0640
+  - name: copy datasources
+    template: src=datasources.yaml dest=/etc/grafana/provisioning/datasources group=grafana mode=0640
+  - name: restart service
+    systemd: name=grafana-server daemon_reload=yes state=restarted
+  - include_tasks: ../nginx.yml

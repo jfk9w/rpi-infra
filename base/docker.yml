@@ -1,0 +1,52 @@
+- name: set service directory
+  set_fact: svc_dir="/opt/{{ svc.name }}"
+- block:
+  - name: precreate service directory
+    file:
+      path: "{{ svc_dir }}"
+      state: directory
+      owner: "{{ svc.user }}"
+      group: "{{ svc.user }}"
+  - name: install packages required by docker
+    apt: 
+      name: 
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg
+        - lsb-release
+  - name: add docker gpg key
+    shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg --batch --yes
+  - name: add docker repository
+    shell: >-
+      echo
+      "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu
+      $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  - name: install docker engine
+    apt:
+      update_cache: yes
+      name: 
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+  - name: enable docker service
+    systemd: name=docker enabled=yes daemon_reload=yes state=started
+  - name: add users to docker group
+    user:
+      name: "{{ item }}"
+      groups: docker
+      append: yes
+    with_items:
+      - "{{ user }}"
+      - "{{ svc.user }}"
+  - name: install docker python package
+    pip: name=docker executable=/usr/bin/pip3
+  become: yes
+- name: copy templated configs
+  tags: update
+  template:
+    src: "{{ item }}"
+    dest: "{{ svc_dir }}"
+  with_fileglob: "../{{ svc.name }}/templates/*"
+  become: yes
+  become_user: "{{ svc.user }}"

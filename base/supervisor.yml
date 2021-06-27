@@ -1,30 +1,31 @@
 ---
-- name: install supervisor
-  apt: package=supervisor
-  become: true
+- name: set log directory fact
+  set_fact: 
+    log_dir: "{{ log_dir | default('/var/log/' + svc.name) }}"
+- name: set main log location
+  set_fact:
+    main_log: "{{ main_log | default(log_dir + '/' + svc.name + '.log') }}"
 - block:
-  - name: set facts
-    set_fact: main_log="{{ main_log | default(log_dir + '/main.log') }}"
-  - name: precreate main log with correct permissions
+  - name: precreate log directory
+    file:
+      path: "{{ log_dir }}"
+      state: directory
+      owner: "{{ svc.user }}"
+      group: "{{ svc.user }}"
+  - name: precreate log file with correct permissions
     file:
       path: "{{ main_log }}"
       state: touch
+      owner: "{{ svc.user }}"
+      group: "{{ svc.user }}"
+  - name: install supervisor
+    apt: package=supervisor
   - name: copy supervisor config
-    tags: update
     template:
-      src: "supervisor.conf"
-      dest: "{{ svc_dir }}/supervisor.conf"
-  become: true
-  become_user: "{{ svc.user }}"
-- block:
-  - name: link supervisor config
-    file:
-      path: /etc/supervisor/conf.d/{{ svc.name }}.conf
-      state: link
-      src: "{{ svc_dir }}/supervisor.conf"
-  - name: manage service via supervisor
+      src: supervisor.conf
+      dest: /etc/supervisor/conf.d/{{ svc.name }}.conf
+  - name: manage {{ svc.name }} via supervisor
     supervisorctl: name={{ svc.name }} state=present
-  - name: restart service
-    tags: update
+  - name: restart {{ svc.name }}
     supervisorctl: name={{ svc.name }} state=restarted
   become: true

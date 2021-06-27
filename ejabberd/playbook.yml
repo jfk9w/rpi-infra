@@ -2,88 +2,35 @@
 - hosts: "{{ host }}"
   become: yes
   vars:
-    src_dir: /tmp/ejabberd-src
-    service: /etc/systemd/system/ejabberd.service
-    certfile: /usr/local/etc/ejabberd/ejabberd.pem
+    deb: https://www.process-one.net/downloads/downloads-action.php?file=/21.04/ejabberd_21.04-0_amd64.deb
+    conf: /opt/ejabberd/conf
+    svc: "{{ ejabberd }}"
+    cert_name: "xmpp.{{ svc.host }}"
+    certfiles:
+      fullchain: "/etc/letsencrypt/live/{{ cert_name }}/fullchain.pem"
+      privkey: "/etc/letsencrypt/live/{{ cert_name }}/privkey.pem"
   tasks:
-    - name: check if ejabberdctl is already present
-      stat:
-        path: "{{ service }}"
-      register: ejabberdctl
-    - block:
-        - name: install required packages
-          apt:
-            package:
-              - gcc
-              - make
-              - libexpat1-dev
-              - libyaml-dev
-              - erlang
-              - zlibc
-              - autoconf
-              - libsqlite3-dev
-              - libssl-dev
-        - name: clone repository
-          git:
-            repo: "{{ ejabberd.repo }}"
-            dest: "{{ src_dir }}"
-        - name: build
-          shell:
-            chdir: "{{ src_dir }}"
-            cmd: "{{ item }}"
-          with_items:
-            - "./autogen.sh"
-            - "./configure --enable-user={{ ejabberd.user }} --enable-pgsql --enable-stun"
-            - "make"
-            - "make install"
-        - name: copy service descriptor
-          copy:
-            remote_src: yes
-            src: "{{ src_dir }}/ejabberd.service.template"
-            dest: "{{ service }}"
-        - name: replace template variables in service descriptor
-          replace:
-            path: "{{ service }}"
-            regexp: "\\@ctlscriptpath\\@"
-            replace: "/usr/local/sbin"
-        - name: replace user in service descriptor
-          replace:
-            path: "{{ service }}"
-            regexp: "^User\\=ejabberd$"
-            replace: "User={{ ejabberd.user }}"
-        - name: replace group in service descriptor
-          replace:
-            path: "{{ service }}"
-            regexp: "^Group\\=ejabberd$"
-            replace: "Group={{ ejabberd.user }}"
-        - name: make executable
-          file:
-            path: "{{ service }}"
-            mode: a+x
-        - name: create postgres schema
-          shell:
-            cmd: >-
-              PGPASSWORD={{ ejabberd.postgres.password }} psql
-              -U {{ ejabberd.postgres.user }}
-              -d {{ ejabberd.postgres.database }}
-              -h {{ ejabberd.postgres.host }}
-              -f {{ src_dir }}/sql/pg.sql
-      when: not ejabberdctl.stat.exists
-    - name: create pem file
-      shell:
-        cmd: >-
-          cat
-          /etc/letsencrypt/live/{{ host }}/privkey.pem
-          /etc/letsencrypt/live/{{ host }}/fullchain.pem
-          > {{ certfile }}
-    - name: copy ejabberd config
-      template:
-        src: templates/ejabberd.yml
-        dest: /usr/local/etc/ejabberd/ejabberd.yml
-        owner: "{{ ejabberd.user }}"
-        group: "{{ ejabberd.user }}"
-    - name: restart ejabberd
-      systemd:
-        name: ejabberd
-        state: restarted
-        daemon_reload: yes
+  - name: install ejabberd
+    apt: deb={{ deb }}
+  - name: get public ip
+    ipify_facts:
+  - name: copy config
+    template: src=ejabberd.yml dest={{ conf }} owner={{ svc.user }} group={{ svc.user }}
+  - name: install certbot
+    snap: name=certbot classic=yes
+  - name: check that certfiles exist
+    shell: >-
+      /snap/bin/certbot certonly -n --nginx
+      -d {{ svc.host }} 
+      -d conference.{{ svc.host }} 
+      -d proxy.{{ svc.host }}
+      -d pubsub.{{ svc.host }}
+      -d upload.{{ svc.host }}
+      --cert-name {{ cert_name }}
+      --agree-tos 
+      --email {{ email }}
+  - name: copy certfiles
+    copy: remote_src=yes src={{ item.value }} dest={{ conf }} owner={{ svc.user }} group={{ svc.user }} mode=0600
+    with_dict: "{{ certfiles }}"
+  - name: restart service
+    systemd: name=ejabberd daemon_reload=yes state=restarted

@@ -1,22 +1,22 @@
 datasource:
-  driver: "{{ hikkabot.database.driver }}"
-  conn: "{{ hikkabot.database.conn }}"
+  driver: "{{ svc.database.driver }}"
+  conn: "{{ svc.database.conn }}"
 interval: 1m
 prometheus:
   address: "http://localhost:{{ prometheus.listeners.hikkabot }}/metrics"
 telegram:
   token: "{{ telegram.tokens.hikkabot }}"
   supervisor: {{ telegram.supervisor_id }}
-  aliases: "{{ hikkabot.aliases }}"
+  aliases: {{ svc.aliases }}
 media:
   directory: /tmp/{{ svc.name }}/media
   retries: 5
   curl: curl
 dvach:
-  usercode: "{{ hikkabot.dvach.usercode }}"
+  usercode: "{{ svc.dvach.usercode }}"
 reddit:
-  clientid: "{{ hikkabot.reddit.clientid }}"
-  clientsecret: "{{ hikkabot.reddit.clientsecret }}"
-  username: "{{ hikkabot.reddit.username }}"
-  password: "{{ hikkabot.reddit.password }}"
+  clientid: "{{ svc.reddit.clientid }}"
+  clientsecret: "{{ svc.reddit.clientsecret }}"
+  username: "{{ svc.reddit.username }}"
+  password: "{{ svc.reddit.password }}"
   maxretries: 3

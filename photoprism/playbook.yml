@@ -1,0 +1,25 @@
+---
+- hosts: "{{ host }}"
+  vars:
+    svc: "{{ photoprism }}"
+  tasks:
+  - include_tasks: ../base/docker.yml
+  - set_fact: storage_dir={{ svc_dir }}
+  - include_tasks: ../nginx.yml
+  - block:
+    - name: precreate storage directory
+      file: path={{ storage_dir }} state=directory owner={{ svc.user }} group={{ svc.user }}
+    - name: start docker container
+      docker_container:
+        image: photoprism/photoprism
+        name: "{{ svc.name }}"
+        published_ports: "{{ svc.port }}:{{ svc.port }}"
+        pull: yes
+        restart: yes
+        state: started
+        env_file: "{{ svc_dir }}/env"
+        volumes: 
+          - "{{ svc.originals }}:/originals"
+          - "{{ storage_dir }}:/storage"
+        working_dir: "{{ svc_dir }}"
+    become: yes

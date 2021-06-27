@@ -2,15 +2,20 @@
 - hosts: "{{ host }}"
   vars:
     svc: "{{ photosync }}"
-    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    svc_dir: "/opt/{{ svc.name }}"
     bin: "./photosync.py"
   tasks:
-    - block:
-        - name: copy script
-          template:
-            src: photosync.py
-            dest: "{{ svc_dir }}"
-            mode: "+x"
-      become: true
-      become_user: "{{ svc.user }}"
-    - include_tasks: ../base/cron.yml
+  - name: create service directory
+    file: path={{ svc_dir }} state=directory owner={{ svc.user }} group={{ svc.user }}
+    become: yes
+  - block:
+    - name: create log directory
+      file: path={{ svc_dir }}/log state=directory
+    - name: copy script
+      template:
+        src: photosync.py
+        dest: "{{ svc_dir }}"
+        mode: "+x"
+    become: true
+    become_user: "{{ svc.user }}"
+  - include_tasks: ../base/cron.yml

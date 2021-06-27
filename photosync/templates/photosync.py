@@ -1,129 +1,31 @@
 #!/usr/bin/python3
 
+import argparse
+import checksumdir
 import errno
 import fcntl
+import glob
 import hashlib
 import logging
 import re
+import random
+import string
 import sys
+from contextlib import ContextDecorator, contextmanager
 from datetime import datetime, timedelta
 from os import listdir, remove, umask
-from os.path import join, isdir, getmtime
+from os.path import join, isdir, getmtime, basename, dirname, exists
 from pathlib import Path
-from shutil import copyfile, copytree, rmtree
+from shutil import copyfile, copytree, rmtree, move
 
-
-def get_source_dirs():
-    source_dirs = {}
-    if len(sys.argv) > 1:
-        source_dirs[sys.argv[1]] = sys.argv[2]
-    else:
-        source_dir = "{{ photosync.source.path }}".split("/*/")
-        for entry in listdir(source_dir[0]):
-            dirpath = join(source_dir[0], entry, source_dir[1])
-            if not isdir(dirpath):
-                continue
-            source_dirs[dirpath] = entry
-            logging.info("Adding %s with suffix %s to the list of sources", dirpath, entry)
-    return source_dirs
-
-
-def get_source_ttl_days():
-    return int("{{ photosync.source.ttl_days }}")
-
-
-def get_hash_check_days():
-    return int("{{ photosync.hash.check_days | default(30) }}")
-
-
-class FileTooYoung(BaseException):
-
-    def __init__(self, path):
-        self.path = path
-
-    def __str__(self):
-        return "File %s is too young" % self.path
-
-
-def checksum(path):
-    if isdir(path):
-        return None
-
-    hash = hashlib.new("{{ photosync.hash.mode | default('md5') }}")
-    with open(path, "rb") as f:
-        while True:
-            data = f.read()
-            if not data:
-                break
-            hash.update(data)
-    return hash.hexdigest()
-
-
-def sync_photos():
-    camera_filename_re = re.compile(r"^.*?(?P<datetime>\d\d\d\d-?\d\d-?\d\d[-_]?\d\d-?\d\d-?\d\d).*?(?P<extension>\.[a-zA-Z0-9]+)?$")
-    synced_files = {}
-    expiration_datetime = datetime.now() - timedelta(days=get_source_ttl_days())
-    earliest_hash_check = datetime.now() - timedelta(days=get_hash_check_days())
-    for source_dir, suffix in get_source_dirs().items():
-        for entry in listdir(source_dir):
-            source_file = join(source_dir, entry)
-            try:
-                if entry.startswith("."):
-                    continue
-                entry_mod_datetime = datetime.fromtimestamp(getmtime(source_file))
-                if datetime.now() - timedelta(hours=1) < entry_mod_datetime:
-                    raise FileTooYoung(source_file)
-                match = camera_filename_re.match(entry)
-                entry_datetime = datetime.strptime(re.sub(r"[^\d]", "", match.groupdict()["datetime"]), "%Y%m%d%H%M%S")
-                entry_extension = match.groupdict().get("extension")
-                if not entry_extension:
-                    entry_extension = ""
-                    entry_name = entry
-                else:
-                    entry_name = entry[:-len(entry_extension)]
-                entry_date = entry_datetime.strftime("%Y-%m-%d")
-                target_date_dir = join("{{ photosync.target.path }}", str(entry_datetime.year), entry_date)
-                target_entry = entry_name + "_" + suffix + entry_extension
-                target_file = join(target_date_dir, target_entry)
-                Path(target_date_dir).mkdir(parents=True, exist_ok=True)
-                if not synced_files.get(entry_date):
-                    synced_files[entry_date] = set(listdir(target_date_dir))
-                while True:
-                    if target_entry not in synced_files[entry_date]:
-                        try:
-                            copytree(source_file, target_file)
-                        except OSError as e:
-                            if e.errno == errno.ENOTDIR:
-                                copyfile(source_file, target_file)
-                            else:
-                                raise
-                        logging.info("Copied %s to %s", source_file, target_file)
-                    if entry_datetime < earliest_hash_check:
-                        break
-                    source_checksum = checksum(source_file)
-                    target_checksum = checksum(target_file)
-                    if source_checksum == target_checksum:
-                        logging.debug("Skipping %s since it's already present at %s",
-                                      source_file, target_file)
-                        break
-                    else:
-                        logging.warning("%s checksum [%s] does not match %s [%s]",
-                                        source_file, source_checksum,
-                                        target_file, target_checksum)
-                        remove(target_file)
-                if expiration_datetime > entry_datetime:
-                    try:
-                        remove(source_file)
-                    except PermissionError as e:
-                        rmtree(source_file)
-                    logging.info("Removed %s since it expired (expiration date %s)" % ((source_file, expiration_datetime)))
-            except Exception as e:
-                logging.error("An exception occurred while processing %s: %s", source_file, e)
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s")
-    f = open("{{ svc_dir }}/.LOCKFILE", "w")
+@contextmanager
+def task_context(lock_file, 
+                 log_level=logging.INFO, 
+                 log_format="%(asctime)s %(levelname)-8s %(message)s"):
+    logging.basicConfig(level=log_level, format=log_format)
+    lock_dir = dirname(lock_file)
+    Path(lock_dir).mkdir(parents=True, exist_ok=True)
+    f = open(lock_file, "w")
     try:
         fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except IOError as e:
@@ -133,6 +35,241 @@ if __name__ == "__main__":
         raise
     old_umask = umask(0o002)
     try:
-        sync_photos()
+        yield
     finally:
         umask(old_umask)
+        remove(lock_file)
+
+class FileSystem(ContextDecorator):
+
+    def __init__(self):
+        pass
+
+    def copy(self, source_path, target_path, target_fs=None):
+        if not target_fs:
+            target_fs = self
+        self._copy(source_path, target_fs, target_path)
+
+    def _copy(self, source_path, target_fs, target_path):
+        pass
+    
+    def listdir(self, path):
+        pass
+
+    def isdir(self, path):
+        pass
+
+    def rename(self, source_path, target_path):
+        pass
+    
+    def remove(self, path):
+        pass
+    
+    def exists(self, path):
+        pass
+    
+    def getmtime(self, path):
+        pass
+
+class UnixFileSystem(FileSystem):
+
+    def __init__(self, temp_dir):
+        super().__init__()
+        self.temp_dir = temp_dir
+
+    def __enter__(self):
+        self.remove(self.temp_dir)
+        Path(self.temp_dir).mkdir(parents=True, exist_ok=True)
+        return self
+    
+    def __exit__(self, exc_type, exc_value, tb):
+        self.remove(self.temp_dir)
+        if exc_type:
+            raise exc_value
+        return True
+
+    def _copy(self, source_path, target_fs, target_path):
+        if not isinstance(target_fs, UnixFileSystem):
+            raise NotImplementedError()
+        if target_fs.exists(target_path):
+            raise FileExistsError()
+        temp_path = join(target_fs.temp_dir, "".join(random.choices(string.ascii_letters + string.digits, k=16)))
+        hash_func = checksumdir.dirhash if isdir(source_path) else UnixFileSystem._hash_file
+        copy_func = copytree if isdir(source_path) else copyfile
+        copy_func(source_path, temp_path)
+        try:
+            source_hash = hash_func(source_path)
+            temp_hash = hash_func(temp_path)
+            if source_hash != temp_hash:
+                raise Exception(f"{source_path} hash [{source_hash}] != {temp_path} hash [{temp_hash}]")
+            self.rename(temp_path, target_path)
+        finally:
+            self.remove(temp_path)
+
+    @staticmethod
+    def _hash_file(path):
+        hash = hashlib.new("md5")
+        with open(path, "rb") as f:
+            while True:
+                data = f.read()
+                if not data:
+                    break
+                hash.update(data)
+        return hash.hexdigest()
+
+    def rename(self, source_path, target_path):
+        target_dir = dirname(target_path)
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+        move(source_path, target_path)
+    
+    def remove(self, path):
+        if not self.exists(path):
+            return
+        if self.isdir(path):
+            rmtree(path)
+        else:
+            remove(path)
+
+    def listdir(self, path):
+        return listdir(path)
+
+    def isdir(self, path):
+        return isdir(path)
+    
+    def exists(self, path):
+        return exists(path)
+    
+    def getmtime(self, path):
+        return datetime.fromtimestamp(getmtime(path))
+
+class ReadOnlyUnixFileSystem(UnixFileSystem):
+
+    def __init__(self):
+        super().__init__(temp_dir=None)
+    
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if exc_type:
+            raise exc_value
+        return True
+
+    def _copy(self, source_path, target_fs, target_path):
+        logging.info(f"[NOOP] Copy {source_path} to {target_path}")
+    
+    def rename(self, source_path, target_path):
+        logging.info(f"[NOOP] Rename {source_path} to {target_path}")
+    
+    def remove(self, path):
+        logging.info(f"[NOOP] Remove {path}")
+
+def drop_prefix(str, prefix):
+    for i in range(0, len(str)):
+        if str[i] != prefix[i]:
+            return str[i:]
+
+def drop_suffix(str, suffix):
+    str = drop_prefix(str[::-1], suffix[::-1])
+    if str:
+        return str[::-1]
+
+def get_feature(str, mask):
+    str = drop_prefix(str, mask)
+    if str:
+        str = drop_suffix(str, mask)
+    return str
+
+def get_source_paths(source_path):
+    paths = glob.glob(source_path)
+    source_paths = {}
+    for path in paths:
+        feature = get_feature(path, source_path)
+        if feature:
+            feature = "_" + feature.replace("/", "_")
+        else:
+            feature = ""
+        source_paths[feature] = path
+    return source_paths
+
+class PhotoSync(object):
+
+    re = re.compile(r"^.*?(?P<datetime>20\d\d-?[0-1]\d-?[0-3]\d[-_]?[0-2]\d-?[0-5]\d-?[0-5]\d).*?(?P<extension>\.[a-zA-Z0-9]+)?$")
+
+    def __init__(self, 
+                 fs: FileSystem, 
+                 source_path, target_dir, 
+                 for_last=timedelta(days=3),
+                 till_last=timedelta(minutes=10),
+                 ttl=timedelta(days=90)):
+        self.now = datetime.now()
+        self.since = self.now - for_last
+        self.till = self.now - till_last
+        self.expire = self.now - ttl
+        self.fs = fs
+        self.source_paths = get_source_paths(source_path)
+        self.target_dir = target_dir
+
+    def run(self):
+        for suffix, source_path in self.source_paths.items():
+            logging.info(f"{source_path} SYNC {suffix}")
+            self.sync(source_path, suffix)
+
+    def sync(self, source_path, suffix):
+        mtime = self.fs.getmtime(source_path)
+        if not self.fs.isdir(source_path):
+            if mtime < self.expire:
+                self.fs.remove(source_path)
+                logging.info(f"{source_path} X")
+                return
+            if mtime < self.since:
+                logging.debug(f"{source_path} TOO OLD")
+                return
+            if mtime >= self.till:
+                logging.debug(f"{source_path} TOO YOUNG")
+                return
+        source_name = basename(source_path)
+        if source_name.startswith("."):
+            return
+        try:
+            match = PhotoSync.re.match(source_name)
+            if not match:
+                raise Exception(f"{source_name} does not match pattern")
+            dt_str = re.sub(r"[^\d]", "", match.groupdict()["datetime"])
+            dt = datetime.strptime(dt_str, "%Y%m%d%H%M%S")
+            ext = match.groupdict().get("extension")
+            name = source_name[:-len(ext)] if ext else source_name
+            target_path = join(
+                self.target_dir,
+                str(dt.year),
+                dt.strftime("%Y-%m-%d"),
+                name + suffix + (ext if ext else ""))
+            if self.fs.exists(target_path):
+                logging.debug(f"{source_path} -> {target_path} PRESENT")
+                return
+            self.fs.copy(source_path, target_path)
+            logging.info(f"{source_path} -> {target_path} OK")
+            return
+        except BaseException as e:
+            if not self.fs.isdir(source_path):
+                logging.warning(f"{source_path} ERROR: {e}")
+                return
+
+        if source_path not in self.source_paths.values():
+            suffix = f"{suffix}_{source_name}"
+
+        logging.info(f"{source_path} SCAN")
+        for entry_name in self.fs.listdir(source_path):
+            entry_path = join(source_path, entry_name)
+            self.sync(entry_path, suffix)
+
+if __name__ == "__main__":
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--source")
+    argparser.add_argument("--target")
+    argparser.add_argument("--temp")
+    args = argparser.parse_args()
+    lock_file = args.temp + ".lock"
+    with task_context(lock_file, log_format="%(message)s"):
+        with UnixFileSystem(args.temp) as fs:
+            PhotoSync(fs, args.source, args.target).run()

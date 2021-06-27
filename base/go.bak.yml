@@ -1,0 +1,55 @@
+- name: set go version
+  set_fact: go_version=go1.16 install_dir=/opt/go
+- name: check installed go version
+  shell: "{{ install_dir }}/bin/go version || true"
+  register: installed_go_version
+- block:
+  - set_fact: archive_name="{{ go_version }}.linux-armv6l.tar.gz"
+  - set_fact: archive_path="/tmp/{{ archive_name }}"
+  - get_url: url="https://golang.org/dl/{{ archive_name }}" dest="{{ archive_path }}"
+  - file: path="{{ install_dir }}" state=absent
+  - file: path="{{ install_dir }}" state=directory
+  - unarchive: remote_src=yes src="{{ archive_path }}" dest="{{ install_dir }}" extra_opts=["--strip-components=1"]
+  - file: path="{{ archive_path }}" state=absent
+  - copy:
+      dest: /etc/profile.d/go.sh
+      content: "PATH=$PATH:{{ install_dir }}/bin"
+  when: "go_version not in installed_go_version.stdout.split(' ')"
+  become: yes
+- block:
+  - name: ensure service directory exists
+    file:
+      path: "{{ svc_dir }}"
+      state: directory
+      recurse: true
+  - name: set facts
+    set_fact: src_dir="{{ svc_dir }}/src"
+  - name: clone repository
+    tags: update
+    git:
+      repo: "{{ svc.repo }}"
+      dest: "{{ src_dir }}"
+      key_file: "/home/{{ svc.user }}/.ssh/{{ svc.user }}"
+      force: yes
+  - name: go update
+    tags: update
+    shell:
+      chdir: "{{ src_dir }}"
+      cmd: /usr/local/go/bin/go get -u
+  - name: go build
+    tags: update
+    shell:
+      chdir: "{{ src_dir }}"
+      cmd: >
+        export GIT_COMMIT=$(git rev-parse --short HEAD) && 
+        /usr/local/go/bin/go build 
+        -ldflags "-X main.GitCommit=$GIT_COMMIT" 
+        -o {{ bin }}
+  - name: copy templated configs
+    tags: update
+    template:
+      src: "{{ item }}"
+      dest: "{{ svc_dir }}"
+    with_fileglob: "../{{ svc.name }}/templates/*"
+  become: true
+  become_user: "{{ svc.user }}"

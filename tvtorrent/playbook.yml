@@ -2,7 +2,7 @@
 - hosts: "{{ host }}"
   vars:
     svc: "{{ tvtorrent }}"
-    svc_dir: "/home/{{ svc.user }}/{{ svc.name }}"
+    svc_dir: "/opt/{{ svc.name }}"
     bin: "{{ svc_dir }}/{{ svc.name }}"
   tasks:
     - include_tasks: ../base/go.yml
