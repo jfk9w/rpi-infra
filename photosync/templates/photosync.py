@@ -2,6 +2,7 @@
 
 import argparse
 import checksumdir
+import docker
 import errno
 import fcntl
 import glob
@@ -11,6 +12,7 @@ import re
 import random
 import string
 import sys
+from codecs import decode
 from contextlib import ContextDecorator, contextmanager
 from datetime import datetime, timedelta
 from os import listdir, remove, umask
@@ -94,8 +96,8 @@ class UnixFileSystem(FileSystem):
         if target_fs.exists(target_path):
             raise FileExistsError()
         temp_path = join(target_fs.temp_dir, "".join(random.choices(string.ascii_letters + string.digits, k=16)))
-        hash_func = checksumdir.dirhash if isdir(source_path) else UnixFileSystem._hash_file
-        copy_func = copytree if isdir(source_path) else copyfile
+        hash_func = checksumdir.dirhash if self.isdir(source_path) else UnixFileSystem._hash_file
+        copy_func = copytree if self.isdir(source_path) else copyfile
         copy_func(source_path, temp_path)
         try:
             source_hash = hash_func(source_path)
@@ -120,6 +122,8 @@ class UnixFileSystem(FileSystem):
     def rename(self, source_path, target_path):
         target_dir = dirname(target_path)
         Path(target_dir).mkdir(parents=True, exist_ok=True)
+        if self.exists(target_path):
+            raise FileExistsError()
         move(source_path, target_path)
     
     def remove(self, path):
@@ -192,6 +196,20 @@ def get_source_paths(source_path):
         source_paths[feature] = path
     return source_paths
 
+def photoprism_index(container_name="photoprism"):
+    photoprism = docker.from_env().containers.get(container_name)
+    if not photoprism:
+        logging.warning(f"{container_name} container not found")
+        return
+    logging.info("RUN photoprism index")
+    exit_code, (stdout, stderr) = photoprism.exec_run(cmd=["photoprism", "index"], demux=True)
+    if stdout:
+        logging.info(f"\n{decode(str(stdout), 'unicode-escape')}")
+    if stderr:
+        logging.error(f"\n{decode(str(stderr), 'unicode-escape')}")
+    if exit_code != 0:
+        logging.error(f"ERROR photoprism index {exit_code}")
+
 class PhotoSync(object):
 
     re = re.compile(r"^.*?(?P<datetime>20\d\d-?[0-1]\d-?[0-3]\d[-_]?[0-2]\d-?[0-5]\d-?[0-5]\d).*?(?P<extension>\.[a-zA-Z0-9]+)?$")
@@ -211,26 +229,31 @@ class PhotoSync(object):
         self.target_dir = target_dir
 
     def run(self):
+        synced = 0
         for suffix, source_path in self.source_paths.items():
-            logging.info(f"{source_path} SYNC {suffix}")
-            self.sync(source_path, suffix)
+            logging.info(f"SYNC {source_path} {suffix}")
+            synced += self.sync(source_path, suffix)
+        if synced:
+            photoprism_index()
 
     def sync(self, source_path, suffix):
         mtime = self.fs.getmtime(source_path)
         if not self.fs.isdir(source_path):
             if mtime < self.expire:
                 self.fs.remove(source_path)
-                logging.info(f"{source_path} X")
-                return
+                logging.info(f"EXPIRE {source_path}")
+                return 0
             if mtime < self.since:
-                logging.debug(f"{source_path} TOO OLD")
-                return
+                logging.debug(f"TOO OLD {source_path}")
+                return 0
             if mtime >= self.till:
-                logging.debug(f"{source_path} TOO YOUNG")
-                return
+                logging.debug(f"TOO YOUNG {source_path}")
+                return 0
+
         source_name = basename(source_path)
         if source_name.startswith("."):
-            return
+            return 0
+
         try:
             match = PhotoSync.re.match(source_name)
             if not match:
@@ -245,23 +268,26 @@ class PhotoSync(object):
                 dt.strftime("%Y-%m-%d"),
                 name + suffix + (ext if ext else ""))
             if self.fs.exists(target_path):
-                logging.debug(f"{source_path} -> {target_path} PRESENT")
-                return
+                logging.debug(f"PRESENT {target_path} <- {source_path}")
+                return 0
             self.fs.copy(source_path, target_path)
-            logging.info(f"{source_path} -> {target_path} OK")
-            return
+            logging.info(f"COPY {target_path} <- {source_path}")
+            return 1
         except BaseException as e:
             if not self.fs.isdir(source_path):
-                logging.warning(f"{source_path} ERROR: {e}")
-                return
+                logging.warning(f"ERROR {source_path} {e}")
+                return 0
 
         if source_path not in self.source_paths.values():
             suffix = f"{suffix}_{source_name}"
 
-        logging.info(f"{source_path} SCAN")
+        logging.info(f"SCAN {source_path}")
+        synced = 0
         for entry_name in self.fs.listdir(source_path):
             entry_path = join(source_path, entry_name)
-            self.sync(entry_path, suffix)
+            synced += self.sync(entry_path, suffix)
+        
+        return synced
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()

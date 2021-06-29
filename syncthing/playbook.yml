@@ -16,3 +16,15 @@
   - include_tasks: ../base/logrotate.yml
   - include_tasks: ../base/supervisor.yml
   - include_tasks: ../nginx.yml
+  - name: cron backup
+    cron:
+      name: syncthing backup
+      job: >
+        BACKUP={{ mount.external }}/backup/syncthing;
+        mkdir -p $BACKUP &&
+        find $BACKUP -type f -mtime +30 -delete &&
+        tar -zcvf $BACKUP/$(date +'\%Y-\%m-\%d').tar.gz /home/{{ svc.user }}/.config/syncthing
+      minute: "45"
+      hour: "10"
+    become: yes
+    become_user: "{{ svc.user }}"

@@ -16,6 +16,7 @@
         published_ports: "{{ svc.port }}:{{ svc.port }}"
         pull: yes
         restart: yes
+        restart_policy: always
         state: started
         env_file: "{{ svc_dir }}/env"
         volumes: 
@@ -23,3 +24,16 @@
           - "{{ storage_dir }}:/storage"
         working_dir: "{{ svc_dir }}"
     become: yes
+  - name: add backup to cron
+    cron:
+      name: photoprism backup
+      job: >
+        BACKUP={{ mount.external }}/backup/photoprism;
+        mkdir -p $BACKUP &&
+        find $BACKUP -type f -mtime +30 -delete &&
+        tar --exclude='{{ storage_dir }}/cache'
+        -zcvf $BACKUP/$(date +'\%Y-\%m-\%d').tar.gz {{ storage_dir }}
+      minute: "0"
+      hour: "11"
+    become: yes
+    become_user: "{{ svc.user }}"
